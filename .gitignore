@@ -7,6 +7,7 @@ __pycache__/
 .ipynb_checkpoints/
 *.pkl
 *.joblib
+
 data/raw/
 data/processed/
 data/synthetic/
