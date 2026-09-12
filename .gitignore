@@ -10,3 +10,13 @@ __pycache__/
 
 # Generated data
 data/
+
+# Required runtime baseline for real-time scoring
+!data/
+!data/processed/
+!data/processed/upi_transactions_features.csv
+
+# Runtime ML models
+!models/
+!models/isolation_forest.pkl
+!models/isolation_scaler.pkl

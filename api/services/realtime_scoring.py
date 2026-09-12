@@ -694,7 +694,7 @@ def score_transaction(transaction):
         risk_score
     )
 
-    alert = risk_score >= 70
+    alert = risk_score >= 30
 
     # --------------------------------------------------------
     # Explainability
