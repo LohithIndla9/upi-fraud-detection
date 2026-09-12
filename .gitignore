@@ -8,6 +8,5 @@ __pycache__/
 *.pkl
 *.joblib
 
-data/raw/
-data/processed/
-data/synthetic/
+# Generated data
+data/
