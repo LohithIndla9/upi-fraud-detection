@@ -1,8 +1,10 @@
 """
 UPI Sentinel - Time-Series Anomaly Detection
 
-Detects unusual transaction activity by analyzing
-transaction frequency over time.
+Detects unusual transaction activity by analyzing:
+- Global transaction volume
+- User-level transaction velocity
+- Short-term transaction bursts
 """
 
 from pathlib import Path
@@ -19,6 +21,21 @@ OUTPUT_FILE = Path(
     "data/processed/upi_transactions_timeseries.csv"
 )
 
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+BURST_WINDOW_MINUTES = 10
+BURST_TRANSACTION_THRESHOLD = 4
+
+ROLLING_WINDOWS = 12
+Z_SCORE_THRESHOLD = 3
+
+
+# ============================================================
+# TIME-SERIES DETECTOR
+# ============================================================
 
 def detect_time_series_anomalies(df):
 
@@ -37,7 +54,7 @@ def detect_time_series_anomalies(df):
     ).reset_index(drop=True)
 
     # --------------------------------------------------------
-    # Transactions per 10-minute window
+    # GLOBAL 10-MINUTE TRANSACTION VOLUME
     # --------------------------------------------------------
 
     df["time_window"] = (
@@ -59,12 +76,8 @@ def detect_time_series_anomalies(df):
     )
 
     # --------------------------------------------------------
-    # Rolling baseline
+    # GLOBAL ROLLING BASELINE
     # --------------------------------------------------------
-
-    # Use the previous windows to establish a baseline.
-    # shift(1) prevents the current window from influencing
-    # its own baseline.
 
     window_stats = (
         window_counts
@@ -75,7 +88,7 @@ def detect_time_series_anomalies(df):
     window_stats["rolling_mean"] = (
         window_stats["transactions_in_window"]
         .rolling(
-            window=12,
+            window=ROLLING_WINDOWS,
             min_periods=3,
         )
         .mean()
@@ -85,7 +98,7 @@ def detect_time_series_anomalies(df):
     window_stats["rolling_std"] = (
         window_stats["transactions_in_window"]
         .rolling(
-            window=12,
+            window=ROLLING_WINDOWS,
             min_periods=3,
         )
         .std()
@@ -105,16 +118,14 @@ def detect_time_series_anomalies(df):
     )
 
     # --------------------------------------------------------
-    # Fill initial baseline
+    # INITIAL BASELINE
     # --------------------------------------------------------
 
-    global_mean = (
-        window_counts.mean()
-    )
+    global_mean = window_counts.mean()
+    global_std = window_counts.std()
 
-    global_std = (
-        window_counts.std()
-    )
+    if pd.isna(global_mean):
+        global_mean = 0
 
     if pd.isna(global_std) or global_std == 0:
         global_std = 1.0
@@ -130,7 +141,7 @@ def detect_time_series_anomalies(df):
     )
 
     # --------------------------------------------------------
-    # Calculate time-series z-score
+    # GLOBAL Z-SCORE
     # --------------------------------------------------------
 
     df["time_series_zscore"] = (
@@ -151,16 +162,15 @@ def detect_time_series_anomalies(df):
     )
 
     # --------------------------------------------------------
-    # Detect unusual activity
+    # GLOBAL TIME-SERIES ANOMALY
     # --------------------------------------------------------
 
-    # 3 standard deviations above the baseline
     df["time_series_anomaly"] = (
-        df["time_series_zscore"] >= 3
+        df["time_series_zscore"] >= Z_SCORE_THRESHOLD
     ).astype(int)
 
     # --------------------------------------------------------
-    # Convert z-score to 0-100 score
+    # GLOBAL TIME-SERIES SCORE
     # --------------------------------------------------------
 
     df["time_series_score"] = (
@@ -171,36 +181,108 @@ def detect_time_series_anomalies(df):
         * 100
     ).clip(0, 100)
 
-    # --------------------------------------------------------
-    # User-level burst detection
-    # --------------------------------------------------------
+    # ========================================================
+    # USER-LEVEL TRANSACTION VELOCITY
+    # ========================================================
 
-    df["user_10min_count"] = (
-        df.groupby(
-            [
-                "user_id",
-                "time_window",
-            ]
-        )["transaction_id"]
-        .transform("count")
-    )
+    # IMPORTANT:
+    # Use a true rolling 10-minute window per user rather
+    # than grouping only by the fixed 10-minute floor.
+
+    df["user_10min_count"] = 0
+
+    for user_id, group in df.groupby("user_id"):
+
+        timestamps = (
+            group["timestamp"]
+            .sort_values()
+        )
+
+        counts = []
+
+        for timestamp in timestamps:
+
+            window_start = (
+                timestamp
+                - pd.Timedelta(
+                    minutes=BURST_WINDOW_MINUTES
+                )
+            )
+
+            count = (
+                (timestamps >= window_start)
+                & (timestamps <= timestamp)
+            ).sum()
+
+            counts.append(count)
+
+        df.loc[
+            timestamps.index,
+            "user_10min_count"
+        ] = counts
+
+    # --------------------------------------------------------
+    # USER BURST DETECTION
+    # --------------------------------------------------------
 
     df["user_burst_anomaly"] = (
-        df["user_10min_count"] >= 4
+        df["user_10min_count"]
+        >= BURST_TRANSACTION_THRESHOLD
     ).astype(int)
 
-    # Combine global and user-level signals
+    # --------------------------------------------------------
+    # USER VELOCITY SCORE
+    # --------------------------------------------------------
+
+    # 1 transaction → 0
+    # 2 transactions → 25
+    # 3 transactions → 50
+    # 4 transactions → 75
+    # 5+ transactions → 100
+
+    df["user_velocity_score"] = (
+        (
+            df["user_10min_count"]
+            - 1
+        )
+        * 25
+    ).clip(0, 100)
+
+    # --------------------------------------------------------
+    # COMBINE GLOBAL + USER SIGNALS
+    # --------------------------------------------------------
+
+    # Global activity contributes 40%
+    # User velocity contributes 60%
+
+    df["time_series_score"] = (
+        (
+            df["time_series_score"] * 0.40
+        )
+        +
+        (
+            df["user_velocity_score"] * 0.60
+        )
+    ).clip(0, 100)
+
+    # --------------------------------------------------------
+    # FINAL TIME-SERIES ANOMALY
+    # --------------------------------------------------------
 
     df["time_series_anomaly"] = (
         (
             df["time_series_anomaly"] == 1
         )
-        | (
+        |
+        (
             df["user_burst_anomaly"] == 1
         )
     ).astype(int)
 
-    # Increase score when a user has a burst
+    # --------------------------------------------------------
+    # Strong burst score
+    # --------------------------------------------------------
+
     df.loc[
         df["user_burst_anomaly"] == 1,
         "time_series_score",
@@ -214,6 +296,10 @@ def detect_time_series_anomalies(df):
 
     return df
 
+
+# ============================================================
+# MAIN
+# ============================================================
 
 def main():
 
@@ -230,7 +316,9 @@ def main():
         parse_dates=["timestamp"],
     )
 
-    print(f"\nInput shape: {df.shape}")
+    print(
+        f"\nInput shape: {df.shape}"
+    )
 
     # --------------------------------------------------------
     # Run detector
@@ -244,6 +332,10 @@ def main():
 
     anomaly_count = int(
         df["time_series_anomaly"].sum()
+    )
+
+    burst_count = int(
+        df["user_burst_anomaly"].sum()
     )
 
     print("\nDetection Results")
@@ -261,7 +353,12 @@ def main():
 
     print(
         f"User burst anomalies: "
-        f"{df['user_burst_anomaly'].sum():,}"
+        f"{burst_count:,}"
+    )
+
+    print(
+        f"Maximum user 10-minute count: "
+        f"{int(df['user_10min_count'].max())}"
     )
 
     # --------------------------------------------------------
@@ -277,7 +374,8 @@ def main():
         correctly_detected = int(
             (
                 (df["time_series_anomaly"] == 1)
-                & (
+                &
+                (
                     df["is_anomaly_ground_truth"] == 1
                 )
             ).sum()
@@ -286,7 +384,8 @@ def main():
         false_positives = int(
             (
                 (df["time_series_anomaly"] == 1)
-                & (
+                &
+                (
                     df["is_anomaly_ground_truth"] == 0
                 )
             ).sum()

@@ -39,6 +39,16 @@ OUTPUT_FILE = OUTPUT_DIR / "upi_transactions.csv"
 
 
 # ============================================================
+# BURST CONFIGURATION
+# ============================================================
+
+# 20 burst groups × 4 transactions = 80 burst anomalies.
+# Each group is generated for the same user within a few minutes.
+BURST_GROUPS = 20
+BURST_SIZE = 4
+
+
+# ============================================================
 # REPRODUCIBILITY
 # ============================================================
 
@@ -62,8 +72,8 @@ CITIES = [
 ]
 
 TRANSACTION_TYPES = [
-    "P2P",       # Person to Person
-    "P2M",       # Person to Merchant
+    "P2P",
+    "P2M",
     "BILL_PAYMENT",
     "RECHARGE",
 ]
@@ -108,7 +118,6 @@ def create_user_profiles():
 
         user_id = f"USER{i + 1:04d}"
 
-        # Individual spending behavior
         avg_amount = np.random.lognormal(
             mean=np.log(1000),
             sigma=0.55
@@ -147,7 +156,6 @@ def generate_normal_transaction(
 
     user_id = user["user_id"]
 
-    # Amount centered around user's normal behavior
     amount = np.random.normal(
         loc=user["avg_amount"],
         scale=user["avg_amount"] * 0.35,
@@ -156,15 +164,12 @@ def generate_normal_transaction(
     amount = max(20, amount)
 
     receiver_number = random.randint(1, 500)
-
     receiver_id = f"MERCHANT{receiver_number:04d}"
 
     transaction_type = random.choice(TRANSACTION_TYPES)
-
     merchant_category = random.choice(MERCHANT_CATEGORIES)
 
     city = user["preferred_city"]
-
     device_id = user["device_id"]
 
     status = random.choice(STATUSES)
@@ -194,11 +199,13 @@ def generate_anomalous_transaction(
     user,
     transaction_number,
     timestamp,
+    anomaly_type=None,
 ):
     """
     Generate suspicious transaction behavior.
 
-    Several different anomaly scenarios are injected.
+    anomaly_type can be explicitly supplied for controlled
+    burst generation. Otherwise, a random anomaly type is used.
     """
 
     user_id = user["user_id"]
@@ -212,7 +219,8 @@ def generate_anomalous_transaction(
         "COMBINED_BEHAVIOR",
     ]
 
-    anomaly_type = random.choice(anomaly_types)
+    if anomaly_type is None:
+        anomaly_type = random.choice(anomaly_types)
 
     # Start with normal values
     amount = user["avg_amount"]
@@ -222,7 +230,6 @@ def generate_anomalous_transaction(
     receiver_id = f"MERCHANT{random.randint(1, 500):04d}"
 
     transaction_type = random.choice(TRANSACTION_TYPES)
-
     merchant_category = random.choice(MERCHANT_CATEGORIES)
 
     # --------------------------------------------------------
@@ -239,12 +246,13 @@ def generate_anomalous_transaction(
 
     elif anomaly_type == "TRANSACTION_BURST":
 
+        # Keep amounts somewhat elevated but not extreme.
         amount = user["avg_amount"] * random.uniform(1.2, 3)
 
-        # Timestamp will be close to another transaction.
-        timestamp = timestamp + timedelta(
-            seconds=random.randint(1, 20)
-        )
+        # Timestamp is controlled by generate_dataset().
+        # Burst transactions belonging to the same group are
+        # placed only a few seconds apart.
+        timestamp = timestamp
 
     # --------------------------------------------------------
     # 3. NEW DEVICE
@@ -254,7 +262,9 @@ def generate_anomalous_transaction(
 
         amount = user["avg_amount"] * random.uniform(2, 5)
 
-        device_id = f"UNKNOWN_DEV{random.randint(10000, 99999)}"
+        device_id = (
+            f"UNKNOWN_DEV{random.randint(10000, 99999)}"
+        )
 
     # --------------------------------------------------------
     # 4. LOCATION CHANGE
@@ -280,7 +290,9 @@ def generate_anomalous_transaction(
 
         amount = user["avg_amount"] * random.uniform(3, 8)
 
-        receiver_id = f"NEW_RECIPIENT_{random.randint(10000, 99999)}"
+        receiver_id = (
+            f"NEW_RECIPIENT_{random.randint(10000, 99999)}"
+        )
 
     # --------------------------------------------------------
     # 6. COMBINED BEHAVIOR
@@ -298,7 +310,9 @@ def generate_anomalous_transaction(
 
         city = random.choice(different_cities)
 
-        device_id = f"UNKNOWN_DEV{random.randint(10000, 99999)}"
+        device_id = (
+            f"UNKNOWN_DEV{random.randint(10000, 99999)}"
+        )
 
         receiver_id = (
             f"NEW_RECIPIENT_{random.randint(10000, 99999)}"
@@ -335,18 +349,31 @@ def generate_dataset():
     print(f"Transactions: {NUM_TRANSACTIONS:,}")
     print(f"Target anomaly rate: {ANOMALY_RATE:.1%}")
 
+    # --------------------------------------------------------
     # Create users
+    # --------------------------------------------------------
+
     users = create_user_profiles()
 
     transactions = []
 
+    # --------------------------------------------------------
     # Start date
+    # --------------------------------------------------------
+
     start_date = datetime(2026, 1, 1)
 
+    # --------------------------------------------------------
     # Determine number of anomalies
+    # --------------------------------------------------------
+
     num_anomalies = int(
         NUM_TRANSACTIONS * ANOMALY_RATE
     )
+
+    # --------------------------------------------------------
+    # Create anomaly indices
+    # --------------------------------------------------------
 
     anomaly_indices = set(
         random.sample(
@@ -355,59 +382,248 @@ def generate_dataset():
         )
     )
 
-    # Generate transactions
-    current_time = start_date
+    # --------------------------------------------------------
+    # Create controlled transaction-burst groups
+    # --------------------------------------------------------
 
-    for i in range(NUM_TRANSACTIONS):
+    burst_indices = set()
+    burst_user_map = {}
+    burst_timestamp_map = {}
 
-        # Move time forward
-        current_time += timedelta(
-            seconds=random.randint(30, 300)
+    # We create consecutive groups of 4 transactions.
+    # Each group belongs to the same user and occurs within
+    # a few minutes.
+
+    possible_starts = list(
+        range(
+            0,
+            NUM_TRANSACTIONS - BURST_SIZE,
+            BURST_SIZE + 10,
         )
+    )
+
+    random.shuffle(possible_starts)
+
+    selected_starts = possible_starts[:BURST_GROUPS]
+
+    # Make sure these indices are anomaly indices.
+    # If necessary, replace normal indices with them while
+    # keeping the total anomaly count exactly 500.
+
+    selected_burst_indices = []
+
+    for start in selected_starts:
+
+        group_indices = list(
+            range(
+                start,
+                start + BURST_SIZE,
+            )
+        )
+
+        selected_burst_indices.extend(group_indices)
+
+    # We need exactly BURST_GROUPS * BURST_SIZE burst anomalies.
+    burst_count = BURST_GROUPS * BURST_SIZE
+
+    # Replace randomly selected anomaly positions with burst positions.
+    non_burst_anomaly_indices = [
+        index
+        for index in anomaly_indices
+        if index not in selected_burst_indices
+    ]
+
+    # Select enough additional anomaly indices if needed.
+    if len(selected_burst_indices) > burst_count:
+        selected_burst_indices = selected_burst_indices[:burst_count]
+
+    # Remove burst positions from normal pool and build final set.
+    burst_indices = set(selected_burst_indices)
+
+    # Make all burst indices anomalies.
+    anomaly_indices.update(burst_indices)
+
+    # If this increased anomaly count beyond target, remove
+    # non-burst anomaly indices.
+    while len(anomaly_indices) > num_anomalies:
+
+        removable = [
+            index
+            for index in anomaly_indices
+            if index not in burst_indices
+        ]
+
+        remove_index = random.choice(removable)
+        anomaly_indices.remove(remove_index)
+
+    # --------------------------------------------------------
+    # Assign a user to each burst group
+    # --------------------------------------------------------
+
+    for group_number, start in enumerate(selected_starts):
+
+        group_indices = list(
+            range(
+                start,
+                start + BURST_SIZE,
+            )
+        )
+
+        # Skip if any group index was not retained.
+        if not all(
+            index in anomaly_indices
+            for index in group_indices
+        ):
+            continue
 
         user = users.iloc[
             random.randint(0, NUM_USERS - 1)
         ]
 
+        base_time = None
+
+        for offset, index in enumerate(group_indices):
+
+            burst_user_map[index] = user
+
+            # 30-90 seconds between burst transactions.
+            # Four transactions therefore fit comfortably
+            # inside the 10-minute detection window.
+            if offset == 0:
+                burst_timestamp_map[index] = None
+            else:
+                pass
+
+    # --------------------------------------------------------
+    # Generate transactions
+    # --------------------------------------------------------
+
+    current_time = start_date
+
+    active_burst_base_time = {}
+
+    for i in range(NUM_TRANSACTIONS):
+
         transaction_number = i + 1
 
-        if i in anomaly_indices:
+        # ----------------------------------------------------
+        # BURST TRANSACTION
+        # ----------------------------------------------------
+
+        if i in burst_user_map:
+
+            user = burst_user_map[i]
+
+            # Identify the beginning of this burst group.
+            group_start = i - (i % BURST_SIZE)
+
+            if group_start not in active_burst_base_time:
+
+                # Start the burst at the current global time.
+                active_burst_base_time[group_start] = (
+                    current_time
+                )
+
+            base_time = active_burst_base_time[group_start]
+
+            position_in_burst = i - group_start
+
+            # 60-120 seconds apart.
+            # Maximum ~6 minutes for four transactions.
+            burst_timestamp = (
+                base_time
+                + timedelta(
+                    seconds=position_in_burst
+                    * random.randint(60, 120)
+                )
+            )
 
             transaction = generate_anomalous_transaction(
                 user=user,
                 transaction_number=transaction_number,
-                timestamp=current_time,
+                timestamp=burst_timestamp,
+                anomaly_type="TRANSACTION_BURST",
             )
 
         else:
 
-            transaction = generate_normal_transaction(
-                user=user,
-                transaction_number=transaction_number,
-                timestamp=current_time,
+            # ------------------------------------------------
+            # Move normal global time forward
+            # ------------------------------------------------
+
+            current_time += timedelta(
+                seconds=random.randint(30, 300)
             )
+
+            # ------------------------------------------------
+            # Select user
+            # ------------------------------------------------
+
+            user = users.iloc[
+                random.randint(0, NUM_USERS - 1)
+            ]
+
+            # ------------------------------------------------
+            # Other anomaly
+            # ------------------------------------------------
+
+            if i in anomaly_indices:
+
+                transaction = generate_anomalous_transaction(
+                    user=user,
+                    transaction_number=transaction_number,
+                    timestamp=current_time,
+                )
+
+            # ------------------------------------------------
+            # Normal transaction
+            # ------------------------------------------------
+
+            else:
+
+                transaction = generate_normal_transaction(
+                    user=user,
+                    transaction_number=transaction_number,
+                    timestamp=current_time,
+                )
 
         transactions.append(transaction)
 
+    # --------------------------------------------------------
     # Convert to DataFrame
+    # --------------------------------------------------------
+
     df = pd.DataFrame(transactions)
 
+    # --------------------------------------------------------
     # Sort chronologically
+    # --------------------------------------------------------
+
     df = df.sort_values("timestamp")
 
-    # Reset index
     df = df.reset_index(drop=True)
 
+    # --------------------------------------------------------
     # Ensure timestamp format
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    # --------------------------------------------------------
 
+    df["timestamp"] = pd.to_datetime(
+        df["timestamp"]
+    )
+
+    # --------------------------------------------------------
     # Create output directory
+    # --------------------------------------------------------
+
     OUTPUT_DIR.mkdir(
         parents=True,
         exist_ok=True,
     )
 
+    # --------------------------------------------------------
     # Save CSV
+    # --------------------------------------------------------
+
     df.to_csv(
         OUTPUT_FILE,
         index=False,
@@ -426,19 +642,28 @@ def generate_dataset():
     print("\nDataset generated successfully!")
     print("-" * 60)
 
-    print(f"Total transactions : {len(df):,}")
-    print(f"Normal transactions : {normal_count:,}")
-    print(f"Anomalous transactions : {anomaly_count:,}")
+    print(
+        f"Total transactions : {len(df):,}"
+    )
+
+    print(
+        f"Normal transactions : {normal_count:,}"
+    )
+
+    print(
+        f"Anomalous transactions : {anomaly_count:,}"
+    )
 
     print(
         f"Actual anomaly rate : "
         f"{anomaly_count / len(df):.2%}"
     )
 
-    print(f"\nSaved to:")
+    print("\nSaved to:")
     print(OUTPUT_FILE)
 
     print("\nAnomaly distribution:")
+
     print(
         df.loc[
             df["is_anomaly_ground_truth"] == 1,

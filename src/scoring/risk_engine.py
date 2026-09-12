@@ -132,7 +132,7 @@ def generate_alert(row):
     """
 
     return int(
-        row["risk_score"] >= 70
+        row["risk_score"] >= 30
     )
 
 
@@ -420,3 +420,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
