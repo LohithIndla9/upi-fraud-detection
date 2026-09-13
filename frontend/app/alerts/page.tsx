@@ -221,7 +221,7 @@ export default function AlertsPage() {
         </div>
       </header>
 
-      < div className="p-5 lg:p-8">
+      <div className="p-5 lg:p-8">
         {/* Heading */}
         <div className="mb-7">
           <div className="mb-2 flex items-center gap-2">
@@ -529,6 +529,7 @@ export default function AlertsPage() {
           </div>
         </div>
       )}
+      </div>
     </main>
   )
 }
