@@ -46,10 +46,16 @@ supabase: Client = create_client(
 # ============================================================
 
 def save_transaction(transaction):
+    raw_timestamp = transaction["timestamp"]
+    if hasattr(raw_timestamp, "isoformat"):
+        formatted_timestamp = raw_timestamp.isoformat()
+    else:
+        formatted_timestamp = str(raw_timestamp)
+
     data = {
         "transaction_id": transaction["transaction_id"],
         "user_id": transaction["user_id"],
-        "timestamp": transaction["timestamp"].isoformat(),
+        "timestamp": formatted_timestamp,
         "amount": transaction["amount"],
         "sender_id": transaction["sender_id"],
         "receiver_id": transaction["receiver_id"],
@@ -260,7 +266,41 @@ def get_risk_distribution():
     )
 
     data = response.data or []
-    # ============================================================
+
+    # --------------------------------------------------------
+    # COUNT RISK LEVELS
+    # --------------------------------------------------------
+
+    low = sum(
+        1
+        for row in data
+        if row["risk_level"] == "LOW"
+    )
+
+    medium = sum(
+        1
+        for row in data
+        if row["risk_level"] == "MEDIUM"
+    )
+
+    high = sum(
+        1
+        for row in data
+        if row["risk_level"] == "HIGH"
+    )
+
+    # --------------------------------------------------------
+    # RETURN DISTRIBUTION
+    # --------------------------------------------------------
+
+    return {
+        "low": low,
+        "medium": medium,
+        "high": high,
+    }
+
+
+# ============================================================
 # GET TRANSACTIONS
 # ============================================================
 
@@ -301,37 +341,11 @@ def get_transactions():
 
     return response.data or []
 
-    # --------------------------------------------------------
-    # COUNT RISK LEVELS
-    # --------------------------------------------------------
 
-    low = sum(
-        1
-        for row in data
-        if row["risk_level"] == "LOW"
-    )
+# ============================================================
+# GET ALERTS
+# ============================================================
 
-    medium = sum(
-        1
-        for row in data
-        if row["risk_level"] == "MEDIUM"
-    )
-
-    high = sum(
-        1
-        for row in data
-        if row["risk_level"] == "HIGH"
-    )
-
-    # --------------------------------------------------------
-    # RETURN DISTRIBUTION
-    # --------------------------------------------------------
-
-    return {
-        "low": low,
-        "medium": medium,
-        "high": high,
-    }
 def get_alerts():
     response = (
         supabase

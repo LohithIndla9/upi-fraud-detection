@@ -15,7 +15,7 @@ import {
 import { useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+import { API_BASE_URL } from "@/lib/api"
 
 type Severity = "HIGH" | "MEDIUM" | "LOW"
 
@@ -82,7 +82,8 @@ export default function AlertsPage() {
       const response = await fetch(`${API_BASE_URL}/api/v1/alerts`)
       if (!response.ok) throw new Error("Failed to fetch alerts")
 
-      const data: ApiAlert[] = await response.json()
+      const data = await response.json()
+      const alertList: ApiAlert[] = Array.isArray(data) ? data : []
 
       let transactions: Array<{
         transaction_id: string
@@ -104,7 +105,10 @@ export default function AlertsPage() {
 
       try {
         const transactionResponse = await fetch(`${API_BASE_URL}/api/v1/transactions`)
-        if (transactionResponse.ok) transactions = await transactionResponse.json()
+        if (transactionResponse.ok) {
+          const txData = await transactionResponse.json()
+          transactions = Array.isArray(txData) ? txData : []
+        }
       } catch {
         // Alerts remain usable even if enrichment is unavailable.
       }
@@ -114,7 +118,7 @@ export default function AlertsPage() {
         return value ?? null
       }
 
-      setAlerts(data.map((alert) => {
+      setAlerts(alertList.map((alert) => {
         const transaction = transactions.find(
           (item) => item.transaction_id === alert.transaction_id
         )

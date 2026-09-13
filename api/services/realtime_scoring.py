@@ -99,6 +99,10 @@ HISTORICAL_DF = pd.read_csv(
     parse_dates=["timestamp"],
 )
 
+if HISTORICAL_DF["timestamp"].dt.tz is not None:
+    HISTORICAL_DF["timestamp"] = HISTORICAL_DF["timestamp"].dt.tz_localize(None)
+
+
 MODEL = joblib.load(MODEL_FILE)
 SCALER = joblib.load(SCALER_FILE)
 
@@ -255,6 +259,8 @@ def score_transaction(transaction):
     user_id = transaction["user_id"]
     amount = float(transaction["amount"])
     timestamp = pd.Timestamp(transaction["timestamp"])
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.tz_convert(None)
     device_id = transaction["device_id"]
     location = transaction["location"]
     receiver_id = transaction["receiver_id"]

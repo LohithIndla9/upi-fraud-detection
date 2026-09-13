@@ -1,1166 +1,625 @@
-"use client"
+﻿"use client"
 
+import { useState } from "react"
 import Link from "next/link"
-import { useEffect, useState } from "react"
-
 import {
   Activity,
   AlertTriangle,
-  BarChart3,
-  Brain,
+  ArrowLeft,
+  CheckCircle2,
+  ChevronRight,
   Clock3,
+  CreditCard,
+  Flame,
   LayoutDashboard,
+  MapPin,
+  Play,
+  RefreshCw,
+  Shield,
   ShieldAlert,
+  Smartphone,
+  Sparkles,
   TrendingUp,
+  User,
   Zap,
 } from "lucide-react"
 
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts"
+import { API_BASE_URL } from "@/lib/api"
 
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
-
-type RiskResult = {
+type RiskResponse = {
+  transaction_id: string
   risk_score: number
   risk_level: "HIGH" | "MEDIUM" | "LOW"
   alert: boolean
   reasons: string[]
 }
 
-type Transaction = {
-  transaction_id: string
-  user_id: string
-  timestamp: string
-  amount: number
-  location: string
-  device_id: string
-  merchant_category: string
-  risk_results?: RiskResult | RiskResult[] | null
+type TestPreset = {
+  name: string
+  description: string
+  badge: string
+  data: {
+    user_id: string
+    amount: number
+    sender_id: string
+    receiver_id: string
+    transaction_type: string
+    merchant_category: string
+    device_id: string
+    location: string
+  }
 }
 
-type TrendPoint = {
-  time: string
-  high: number
-  medium: number
-  low: number
-}
+const TEST_PRESETS: TestPreset[] = [
+  {
+    name: "Normal P2P Payment",
+    description: "Typical daytime coffee payment to known friend",
+    badge: "LOW RISK EXPECTED",
+    data: {
+      user_id: "USER0001",
+      amount: 250,
+      sender_id: "USER0001",
+      receiver_id: "USER0002",
+      transaction_type: "P2P",
+      merchant_category: "Food",
+      device_id: "DEV_TRUSTED_01",
+      location: "Mumbai",
+    },
+  },
+  {
+    name: "Statistical Amount Outlier (IQR)",
+    description: "Extremely large transfer exceeding IQR boundary",
+    badge: "MEDIUM/HIGH RISK",
+    data: {
+      user_id: "USER0001",
+      amount: 45000,
+      sender_id: "USER0001",
+      receiver_id: "MERCHANT_JEWELRY",
+      transaction_type: "P2M",
+      merchant_category: "Shopping",
+      device_id: "DEV_TRUSTED_01",
+      location: "Mumbai",
+    },
+  },
+  {
+    name: "New Device + Location Change",
+    description: "Transaction from unfamiliar hardware in another city",
+    badge: "BEHAVIORAL ANOMALY",
+    data: {
+      user_id: "USER0001",
+      amount: 8500,
+      sender_id: "USER0001",
+      receiver_id: "UNKNOWN_REC_88",
+      transaction_type: "UPI",
+      merchant_category: "Shopping",
+      device_id: "NEW_PHONE_ROUGE_99",
+      location: "Kolkata",
+    },
+  },
+  {
+    name: "High-Risk Combined Attack",
+    description: "Huge midnight payment, new device & untrusted recipient",
+    badge: "HIGH RISK ALERT",
+    data: {
+      user_id: "USER0001",
+      amount: 95000,
+      sender_id: "USER0001",
+      receiver_id: "MULE_ACCOUNT_666",
+      transaction_type: "P2P",
+      merchant_category: "Shopping",
+      device_id: "EMULATOR_DEV_XYZ",
+      location: "Unknown",
+    },
+  },
+]
 
-const CustomTooltip = ({
-  active,
-  payload,
-  label,
-}: any) => {
-
-  if (!active || !payload?.length) {
-    return null
-  }
-
-  return (
-    <div className="rounded-xl border border-white/10 bg-[#10141b] px-4 py-3 shadow-2xl">
-
-      <p className="mb-2 text-xs text-zinc-400">
-        {label}
-      </p>
-
-      {payload.map((item: any) => (
-        <div
-          key={item.dataKey}
-          className="flex items-center justify-between gap-6 text-sm"
-        >
-          <span className="text-zinc-300">
-            {item.name}
-          </span>
-
-          <span className="font-semibold text-white">
-            {item.value}
-          </span>
-        </div>
-      ))}
-
-    </div>
-  )
-}
-
-
-export default function AnalyticsPage() {
-  const [transactions, setTransactions] = useState<Transaction[]>([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [apiError, setApiError] = useState(false)
-
-  async function fetchAnalytics(showRefreshState = false) {
-    try {
-      if (showRefreshState) {
-        setRefreshing(true)
-      } else {
-        setLoading(true)
-      }
-
-      setApiError(false)
-
-      const response = await fetch(
-        `${API_BASE_URL}/api/v1/transactions`
-      )
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch transactions")
-      }
-
-      const data: Transaction[] = await response.json()
-      setTransactions(data)
-    } catch (error) {
-      console.error("Analytics API error:", error)
-      setApiError(true)
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchAnalytics()
-  }, [])
-
-  const getRisk = (transaction: Transaction): RiskResult | null => {
-    const result = transaction.risk_results
-
-    if (Array.isArray(result)) {
-      return result[0] ?? null
-    }
-
-    return result ?? null
-  }
-
-  const totalTransactions = transactions.length
-
-  const highCount = transactions.filter(
-    (transaction) =>
-      getRisk(transaction)?.risk_level === "HIGH"
-  ).length
-
-  const mediumCount = transactions.filter(
-    (transaction) =>
-      getRisk(transaction)?.risk_level === "MEDIUM"
-  ).length
-
-  const lowCount = transactions.filter(
-    (transaction) =>
-      getRisk(transaction)?.risk_level === "LOW"
-  ).length
-
-  const scoredTransactions = transactions.filter(
-    (transaction) => getRisk(transaction) !== null
-  )
-
-  const averageRisk = scoredTransactions.length
-    ? scoredTransactions.reduce(
-        (sum, transaction) =>
-          sum + Number(getRisk(transaction)?.risk_score ?? 0),
-        0
-      ) / scoredTransactions.length
-    : 0
-
-  const alertCount = transactions.filter(
-    (transaction) =>
-      getRisk(transaction)?.alert === true
-  ).length
-
-  const riskDistribution = [
-    { name: "Low", value: lowCount },
-    { name: "Medium", value: mediumCount },
-    { name: "High", value: highCount },
-  ]
-
-  const riskColors = [
-    "#22c55e",
-    "#f59e0b",
-    "#ef4444",
-  ]
-
-  // These are the configured risk-engine weights.
-  const detectionMethods = [
-    { name: "Isolation Forest", value: 35 },
-    { name: "Time-Series", value: 25 },
-    { name: "IQR", value: 20 },
-    { name: "Behavioral", value: 20 },
-  ]
-
-  const behaviorCounts = {
-    "New Device": 0,
-    "Location Change": 0,
-    "New Recipient": 0,
-    "Transaction Burst": 0,
-    "Night Activity": 0,
-  }
-
-  transactions.forEach((transaction) => {
-    const reasons = getRisk(transaction)?.reasons ?? []
-
-    reasons.forEach((reason) => {
-      const text = reason.toLowerCase()
-
-      if (text.includes("new device")) {
-        behaviorCounts["New Device"]++
-      }
-
-      if (text.includes("location")) {
-        behaviorCounts["Location Change"]++
-      }
-
-      if (text.includes("recipient")) {
-        behaviorCounts["New Recipient"]++
-      }
-
-      if (text.includes("burst")) {
-        behaviorCounts["Transaction Burst"]++
-      }
-
-      if (text.includes("night")) {
-        behaviorCounts["Night Activity"]++
-      }
-    })
+export default function TestScoringPage() {
+  const [formData, setFormData] = useState({
+    transaction_id: `TXN_SIM_${Date.now().toString().slice(-6)}`,
+    user_id: "USER0001",
+    amount: "15000",
+    sender_id: "USER0001",
+    receiver_id: "MERCHANT_999",
+    transaction_type: "P2P",
+    merchant_category: "Shopping",
+    device_id: "DEVICE_NEW_01",
+    location: "Mumbai",
   })
 
-  const behaviorSignals = Object.entries(
-    behaviorCounts
-  ).map(([name, count]) => ({
-    name,
-    value: totalTransactions
-      ? Math.min(
-          100,
-          Math.round(
-            (count / totalTransactions) * 100
-          )
-        )
-      : 0,
-  }))
+  const [scoring, setScoring] = useState(false)
+  const [result, setResult] = useState<RiskResponse | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [statusMessage, setStatusMessage] = useState<string | null>(null)
 
-  const anomalyTrend = buildTrendData(
-    transactions,
-    getRisk
-  )
+  function applyPreset(preset: TestPreset) {
+    setFormData({
+      transaction_id: `TXN_SIM_${Date.now().toString().slice(-6)}`,
+      user_id: preset.data.user_id,
+      amount: preset.data.amount.toString(),
+      sender_id: preset.data.sender_id,
+      receiver_id: preset.data.receiver_id,
+      transaction_type: preset.data.transaction_type,
+      merchant_category: preset.data.merchant_category,
+      device_id: preset.data.device_id,
+      location: preset.data.location,
+    })
+    setResult(null)
+    setError(null)
+  }
+
+  async function handleScore(e?: React.FormEvent) {
+    if (e) e.preventDefault()
+    setScoring(true)
+    setError(null)
+    setStatusMessage("Running ML Risk Engine (IQR + Isolation Forest + Time Series + Behavioral)...")
+
+    try {
+      const payload = {
+        transaction_id: formData.transaction_id.trim() || `TXN_${Date.now()}`,
+        user_id: formData.user_id.trim(),
+        timestamp: new Date().toISOString(),
+        amount: parseFloat(formData.amount) || 1.0,
+        sender_id: formData.sender_id.trim(),
+        receiver_id: formData.receiver_id.trim(),
+        transaction_type: formData.transaction_type.trim(),
+        merchant_category: formData.merchant_category.trim(),
+        device_id: formData.device_id.trim(),
+        location: formData.location.trim(),
+      }
+
+      const res = await fetch(`${API_BASE_URL}/api/v1/transactions/score`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null)
+        throw new Error(
+          errJson?.detail
+            ? typeof errJson.detail === "string"
+              ? errJson.detail
+              : JSON.stringify(errJson.detail)
+            : `Server returned status ${res.status}`
+        )
+      }
+
+      const scoreData: RiskResponse = await res.json()
+      setResult(scoreData)
+      setStatusMessage("Transaction scored & committed to Supabase database.")
+    } catch (err: any) {
+      console.error("Scoring error:", err)
+      setError(err?.message || "Failed to score transaction.")
+      setStatusMessage(null)
+    } finally {
+      setScoring(false)
+    }
+  }
 
   return (
-    <main className="min-h-screen bg-[#07090d] text-white">
-
-      <div className="mx-auto max-w-[1600px] p-6 lg:p-8">
-
-
-        {apiError && (
-          <div className="mb-5 flex items-center justify-between rounded-2xl border border-red-500/20 bg-red-500/[0.04] px-4 py-3">
-            <div>
-              <p className="text-xs font-medium text-red-400">
-                Unable to load live analytics data.
-              </p>
-              <p className="mt-1 text-[10px] text-zinc-600">
-                Check that the FastAPI backend is running.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => fetchAnalytics(true)}
-              className="rounded-lg border border-red-500/20 px-3 py-2 text-[10px] font-semibold text-red-400 transition hover:bg-red-500/10"
-            >
-              Retry
-            </button>
-          </div>
-        )}
-
-        {/* =====================================================
-            HEADER
-        ====================================================== */}
-
-        <div className="mb-8 flex flex-col justify-between gap-5 md:flex-row md:items-end">
-
-          {/* Title */}
+    <main className="min-h-screen bg-[#07090d] text-slate-100">
+      {/* Header */}
+      <header className="sticky top-0 z-30 flex h-20 items-center justify-between border-b border-white/10 bg-[#07090d]/90 px-5 backdrop-blur-xl lg:px-8">
+        <div className="flex items-center gap-4">
+          <Link
+            href="/"
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-400 transition hover:border-cyan-400/20 hover:text-cyan-400"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
 
           <div>
-
-            <div className="mb-3 flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-cyan-400">
-
-              <BarChart3 className="h-4 w-4" />
-
-              Detection Intelligence
-
-            </div>
-
-
-            <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
-              Analytics
+            <p className="text-[10px] uppercase tracking-[0.2em] text-cyan-400">
+              Live Testing Console
+            </p>
+            <h1 className="text-lg font-semibold text-white">
+              Real-Time Transaction Risk Scoring Simulator
             </h1>
-
-
-            <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-              Analyze anomaly signals, behavioral patterns and risk
-              distribution across the UPI transaction network.
-            </p>
-
           </div>
-
-
-          {/* Header Actions */}
-
-          <div className="flex flex-wrap items-center gap-3">
-
-            <button
-              type="button"
-              onClick={() => fetchAnalytics(true)}
-              disabled={refreshing}
-              className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-xs font-medium text-zinc-300 transition hover:border-cyan-400/20 hover:bg-cyan-400/5 hover:text-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Activity
-                className={`h-4 w-4 ${
-                  refreshing ? "animate-spin" : ""
-                }`}
-              />
-              Refresh
-            </button>
-
-            {/* Back To Dashboard */}
-
-            <Link
-              href="/"
-              className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-xs font-medium text-zinc-300 transition hover:border-cyan-400/20 hover:bg-cyan-400/5 hover:text-cyan-400"
-            >
-
-              <LayoutDashboard className="h-4 w-4" />
-
-              Back to Dashboard
-
-            </Link>
-
-
-            {/* Detection Status */}
-
-            <div className="flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/5 px-4 py-2">
-
-              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-
-              <span className="text-xs font-medium text-emerald-300">
-                DETECTION ENGINE ACTIVE
-              </span>
-
-            </div>
-
-          </div>
-
         </div>
 
+        <div className="flex items-center gap-3">
+          <Link
+            href="/transactions"
+            className="hidden items-center gap-1 text-xs text-slate-400 transition hover:text-white sm:flex"
+          >
+            Transactions
+            <ChevronRight className="h-3 w-3" />
+          </Link>
+          <div className="flex items-center gap-2 rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-3 py-2">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-400" />
+            <span className="text-xs text-cyan-400">FastAPI & Supabase Connected</span>
+          </div>
+        </div>
+      </header>
 
-
-        {/* =====================================================
-            KPI CARDS
-        ====================================================== */}
-
-        <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-
-
-          <MetricCard
-            icon={Brain}
-            title="Transactions Analyzed"
-            value={
-              loading
-                ? "..."
-                : totalTransactions.toLocaleString()
-            }
-            subtitle="Live transaction feed"
-          />
-
-
-          <MetricCard
-            icon={Activity}
-            title="Average Risk Score"
-            value={
-              loading
-                ? "..."
-                : averageRisk.toFixed(1)
-            }
-            subtitle="Across scored transactions"
-          />
-
-
-          <MetricCard
-            icon={AlertTriangle}
-            title="High Risk"
-            value={
-              loading
-                ? "..."
-                : highCount.toLocaleString()
-            }
-            subtitle="Transactions classified HIGH"
-          />
-
-
-          <MetricCard
-            icon={Zap}
-            title="Active Alerts"
-            value={
-              loading
-                ? "..."
-                : alertCount.toLocaleString()
-            }
-            subtitle="Alerts generated by engine"
-          />
-
+      {/* Main Content */}
+      <div className="mx-auto max-w-[1600px] p-5 lg:p-8">
+        {/* Intro */}
+        <div className="mb-8">
+          <div className="mb-2 flex items-center gap-2">
+            <Zap className="h-4 w-4 text-cyan-400" />
+            <span className="text-xs font-medium uppercase tracking-widest text-cyan-400">
+              Anomaly Simulator
+            </span>
+          </div>
+          <h2 className="text-2xl font-bold tracking-tight text-white lg:text-3xl">
+            Simulate & Score UPI Transactions
+          </h2>
+          <p className="mt-2 text-sm text-slate-400">
+            Submit transactions to the live FastAPI backend. The scoring engine evaluates the
+            transaction against the trained Isolation Forest model, IQR boundaries, time-series windows,
+            and behavioral heuristics, then automatically records the findings in Supabase.
+          </p>
         </div>
 
-
-
-        {/* =====================================================
-            MAIN CHARTS
-        ====================================================== */}
-
-        <div className="grid gap-6 xl:grid-cols-[1.6fr_1fr]">
-
-
-          {/* Anomaly Trend */}
-
-          <section className="rounded-2xl border border-white/10 bg-[#0b0e13] p-5 shadow-2xl shadow-black/10">
-
-            <div className="mb-6 flex items-start justify-between">
-
-              <div>
-
-                <h2 className="font-semibold">
-                  Anomaly Detection Activity
-                </h2>
-
-                <p className="mt-1 text-xs text-zinc-500">
-                  Live risk classification across the transaction timeline
-                </p>
-
-              </div>
-
-
-              <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2">
-
-                <TrendingUp className="h-4 w-4 text-cyan-400" />
-
-              </div>
-
-            </div>
-
-
-            <div className="h-[330px]">
-
-              <ResponsiveContainer
-                width="100%"
-                height="100%"
+        {/* Preset Scenarios */}
+        <div className="mb-8">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
+            Quick Test Scenarios
+          </h3>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {TEST_PRESETS.map((preset) => (
+              <button
+                key={preset.name}
+                type="button"
+                onClick={() => applyPreset(preset)}
+                className="group flex flex-col justify-between rounded-xl border border-white/10 bg-white/[0.02] p-4 text-left transition hover:border-cyan-400/40 hover:bg-white/[0.04]"
               >
-
-                <AreaChart data={anomalyTrend}>
-
-                  <defs>
-
-                    <linearGradient
-                      id="iqrFill"
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
-
-                      <stop
-                        offset="0%"
-                        stopOpacity={0.25}
-                      />
-
-                      <stop
-                        offset="100%"
-                        stopOpacity={0}
-                      />
-
-                    </linearGradient>
-
-
-                    <linearGradient
-                      id="isolationFill"
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
-
-                      <stop
-                        offset="0%"
-                        stopOpacity={0.18}
-                      />
-
-                      <stop
-                        offset="100%"
-                        stopOpacity={0}
-                      />
-
-                    </linearGradient>
-
-                  </defs>
-
-
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="rgba(255,255,255,0.06)"
-                  />
-
-
-                  <XAxis
-                    dataKey="time"
-                    stroke="#52525b"
-                    tick={{ fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-
-
-                  <YAxis
-                    stroke="#52525b"
-                    tick={{ fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-
-
-                  <Tooltip
-                    content={<CustomTooltip />}
-                  />
-
-
-                  <Area
-                    type="monotone"
-                    dataKey="high"
-                    name="High Risk"
-                    stroke="#f59e0b"
-                    fill="url(#iqrFill)"
-                    strokeWidth={2}
-                  />
-
-
-                  <Area
-                    type="monotone"
-                    dataKey="medium"
-                    name="Medium Risk"
-                    stroke="#8b5cf6"
-                    fill="url(#isolationFill)"
-                    strokeWidth={2}
-                  />
-
-
-                  <Area
-                    type="monotone"
-                    dataKey="low"
-                    name="Low Risk"
-                    stroke="#22d3ee"
-                    fill="transparent"
-                    strokeWidth={2}
-                  />
-
-                </AreaChart>
-
-              </ResponsiveContainer>
-
-            </div>
-
-
-            <div className="mt-4 flex flex-wrap gap-5 text-xs text-zinc-400">
-
-              <LegendDot label="High Risk" />
-
-              <LegendDot label="Medium Risk" />
-
-              <LegendDot label="Low Risk" />
-
-            </div>
-
-          </section>
-
-
-
-          {/* =================================================
-              RISK DISTRIBUTION
-          ================================================== */}
-
-          <section className="rounded-2xl border border-white/10 bg-[#0b0e13] p-5">
-
-            <div className="mb-4">
-
-              <h2 className="font-semibold">
-                Risk Distribution
-              </h2>
-
-              <p className="mt-1 text-xs text-zinc-500">
-                Current transaction risk classification
-              </p>
-
-            </div>
-
-
-            <div className="relative h-[270px]">
-
-              <ResponsiveContainer
-                width="100%"
-                height="100%"
-              >
-
-                <PieChart>
-
-                  <Pie
-                    data={riskDistribution}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={75}
-                    outerRadius={105}
-                    paddingAngle={4}
-                    dataKey="value"
-                  >
-
-                    {riskDistribution.map((_, index) => (
-
-                      <Cell
-                        key={index}
-                        fill={riskColors[index]}
-                      />
-
-                    ))}
-
-                  </Pie>
-
-
-                  <Tooltip
-                    contentStyle={{
-                      background: "#10141b",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      borderRadius: "12px",
-                    }}
-                  />
-
-                </PieChart>
-
-              </ResponsiveContainer>
-
-
-              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-
-                <span className="text-3xl font-bold">
-                  {totalTransactions >= 1000
-                    ? `${(totalTransactions / 1000).toFixed(1)}K`
-                    : totalTransactions.toLocaleString()}
-                </span>
-
-                <span className="text-xs text-zinc-500">
-                  Transactions
-                </span>
-
-              </div>
-
-            </div>
-
-
-            <div className="space-y-3">
-
-              {riskDistribution.map((item, index) => (
-
-                <div
-                  key={item.name}
-                  className="flex items-center justify-between"
-                >
-
-                  <div className="flex items-center gap-2">
-
-                    <span
-                      className="h-2.5 w-2.5 rounded-full"
-                      style={{
-                        backgroundColor: riskColors[index],
-                      }}
-                    />
-
-                    <span className="text-sm text-zinc-300">
-                      {item.name} Risk
-                    </span>
-
-                  </div>
-
-
-                  <span className="text-sm font-semibold">
-                    {totalTransactions
-                      ? `${Math.round(
-                          (item.value / totalTransactions) * 100
-                        )}%`
-                      : "0%"}
+                <div>
+                  <span className="mb-2 inline-block rounded-md border border-cyan-400/20 bg-cyan-400/10 px-2 py-0.5 text-[9px] font-semibold text-cyan-400">
+                    {preset.badge}
                   </span>
-
+                  <h4 className="text-sm font-semibold text-white group-hover:text-cyan-400">
+                    {preset.name}
+                  </h4>
+                  <p className="mt-1 text-xs text-slate-500">{preset.description}</p>
                 </div>
-
-              ))}
-
-            </div>
-
-          </section>
-
+                <p className="mt-3 text-[11px] font-medium text-slate-400">
+                  ₹{preset.data.amount.toLocaleString("en-IN")} • {preset.data.location}
+                </p>
+              </button>
+            ))}
+          </div>
         </div>
 
-
-
-        {/* =====================================================
-            LOWER ANALYTICS
-        ====================================================== */}
-
-        <div className="mt-6 grid gap-6 xl:grid-cols-2">
-
-
-          {/* Detection Contribution */}
-
-          <section className="rounded-2xl border border-white/10 bg-[#0b0e13] p-5">
-
-            <div className="mb-6">
-
-              <h2 className="font-semibold">
-                Detection Contribution
-              </h2>
-
-              <p className="mt-1 text-xs text-zinc-500">
-                Configured weights used by the risk scoring engine
-              </p>
-
-            </div>
-
-
-            <div className="h-[300px]">
-
-              <ResponsiveContainer
-                width="100%"
-                height="100%"
+        {/* Two column layout: Form and Results */}
+        <div className="grid gap-8 lg:grid-cols-2">
+          {/* Form */}
+          <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-6">
+            <div className="mb-6 flex items-center justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-cyan-400" />
+                <h3 className="font-semibold text-white">Transaction Parameters</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    transaction_id: `TXN_SIM_${Date.now().toString().slice(-6)}`,
+                  }))
+                }
+                className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-cyan-400"
               >
-
-                <BarChart
-                  data={detectionMethods}
-                  layout="vertical"
-                  margin={{
-                    left: 10,
-                    right: 20,
-                  }}
-                >
-
-                  <CartesianGrid
-                    horizontal={false}
-                    stroke="rgba(255,255,255,0.06)"
-                  />
-
-
-                  <XAxis
-                    type="number"
-                    domain={[0, 40]}
-                    stroke="#52525b"
-                    tick={{ fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-
-
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={105}
-                    stroke="#52525b"
-                    tick={{ fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-
-
-                  <Tooltip
-                    cursor={{
-                      fill: "rgba(255,255,255,0.03)",
-                    }}
-                    contentStyle={{
-                      background: "#10141b",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      borderRadius: "12px",
-                    }}
-                  />
-
-
-                  <Bar
-                    dataKey="value"
-                    radius={[0, 6, 6, 0]}
-                    fill="#22d3ee"
-                  />
-
-                </BarChart>
-
-              </ResponsiveContainer>
-
+                <RefreshCw className="h-3 w-3" />
+                New ID
+              </button>
             </div>
 
-          </section>
+            <form onSubmit={handleScore} className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs text-slate-400">Transaction ID</label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.transaction_id}
+                    onChange={(e) =>
+                      setFormData({ ...formData, transaction_id: e.target.value })
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-mono text-white outline-none focus:border-cyan-400/40"
+                  />
+                </div>
 
-
-
-          {/* Behavioral Signals */}
-
-          <section className="rounded-2xl border border-white/10 bg-[#0b0e13] p-5">
-
-            <div className="mb-6 flex items-start justify-between">
-
-              <div>
-
-                <h2 className="font-semibold">
-                  Behavioral Anomaly Signals
-                </h2>
-
-                <p className="mt-1 text-xs text-zinc-500">
-                  Frequency of suspicious behavioral indicators
-                </p>
-
+                <div>
+                  <label className="mb-1 block text-xs text-slate-400">User ID</label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.user_id}
+                    onChange={(e) => setFormData({ ...formData, user_id: e.target.value })}
+                    className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-mono text-white outline-none focus:border-cyan-400/40"
+                  />
+                </div>
               </div>
 
-
-              <ShieldAlert className="h-5 w-5 text-cyan-400" />
-
-            </div>
-
-
-            <div className="space-y-5">
-
-              {behaviorSignals.map((signal) => (
-
-                <div key={signal.name}>
-
-                  <div className="mb-2 flex items-center justify-between">
-
-                    <span className="text-sm text-zinc-300">
-                      {signal.name}
-                    </span>
-
-                    <span className="text-xs font-semibold text-zinc-400">
-                      {signal.value}%
-                    </span>
-
-                  </div>
-
-
-                  <div className="h-2 overflow-hidden rounded-full bg-white/[0.06]">
-
-                    <div
-                      className="h-full rounded-full bg-cyan-400 transition-all"
-                      style={{
-                        width: `${signal.value}%`,
-                      }}
-                    />
-
-                  </div>
-
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs text-slate-400">Amount (₹ INR)</label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    step="any"
+                    value={formData.amount}
+                    onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                    className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm font-semibold text-white outline-none focus:border-cyan-400/40"
+                  />
                 </div>
 
-              ))}
+                <div>
+                  <label className="mb-1 block text-xs text-slate-400">Transaction Type</label>
+                  <select
+                    value={formData.transaction_type}
+                    onChange={(e) =>
+                      setFormData({ ...formData, transaction_type: e.target.value })
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-[#0c1017] px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-400/40"
+                  >
+                    <option value="P2P">P2P (Person to Person)</option>
+                    <option value="P2M">P2M (Person to Merchant)</option>
+                    <option value="UPI">UPI Payment</option>
+                  </select>
+                </div>
+              </div>
 
-            </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs text-slate-400">Sender ID</label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.sender_id}
+                    onChange={(e) => setFormData({ ...formData, sender_id: e.target.value })}
+                    className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white outline-none focus:border-cyan-400/40"
+                  />
+                </div>
 
-          </section>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-400">Receiver ID</label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.receiver_id}
+                    onChange={(e) => setFormData({ ...formData, receiver_id: e.target.value })}
+                    className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white outline-none focus:border-cyan-400/40"
+                  />
+                </div>
+              </div>
 
-        </div>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-xs text-slate-400">Category</label>
+                  <select
+                    value={formData.merchant_category}
+                    onChange={(e) =>
+                      setFormData({ ...formData, merchant_category: e.target.value })
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-[#0c1017] px-3 py-2.5 text-xs text-white outline-none focus:border-cyan-400/40"
+                  >
+                    <option value="Shopping">Shopping</option>
+                    <option value="Food">Food & Dining</option>
+                    <option value="Grocery">Grocery</option>
+                    <option value="Travel">Travel</option>
+                    <option value="Entertainment">Entertainment</option>
+                    <option value="Bills">Bills & Utility</option>
+                  </select>
+                </div>
 
+                <div>
+                  <label className="mb-1 block text-xs text-slate-400">Device ID</label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.device_id}
+                    onChange={(e) => setFormData({ ...formData, device_id: e.target.value })}
+                    className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white outline-none focus:border-cyan-400/40"
+                  />
+                </div>
 
+                <div>
+                  <label className="mb-1 block text-xs text-slate-400">Location</label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.location}
+                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                    className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white outline-none focus:border-cyan-400/40"
+                  />
+                </div>
+              </div>
 
-        {/* =====================================================
-            DETECTION PIPELINE
-        ====================================================== */}
+              <button
+                type="submit"
+                disabled={scoring}
+                className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {scoring ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Executing Risk Models...
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4 fill-white" />
+                    Calculate Risk Score
+                  </>
+                )}
+              </button>
 
-        <section className="mt-6 rounded-2xl border border-white/10 bg-[#0b0e13] p-5">
-
-          <div className="mb-6">
-
-            <h2 className="font-semibold">
-              Anomaly Detection Pipeline
-            </h2>
-
-            <p className="mt-1 text-xs text-zinc-500">
-              How UPI Sentinel converts transaction behavior into a risk score
-            </p>
-
+              {statusMessage && (
+                <p className="mt-2 text-center text-xs text-slate-400">{statusMessage}</p>
+              )}
+            </form>
           </div>
 
+          {/* Result Panel */}
+          <div className="flex flex-col gap-6">
+            {error && (
+              <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-5">
+                <div className="flex items-center gap-3">
+                  <AlertTriangle className="h-5 w-5 text-red-400" />
+                  <div>
+                    <p className="text-sm font-semibold text-red-400">Scoring Engine Error</p>
+                    <p className="mt-1 text-xs text-slate-300">{error}</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
-          <div className="grid gap-3 md:grid-cols-5">
+            {result ? (
+              <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-6 shadow-2xl">
+                <div className="mb-6 flex items-center justify-between border-b border-white/10 pb-4">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                      Scoring Verdict
+                    </p>
+                    <h3 className="font-mono text-sm font-semibold text-white">
+                      {result.transaction_id}
+                    </h3>
+                  </div>
+                  <span
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold tracking-wider ${
+                      result.risk_level === "HIGH"
+                        ? "border-red-500/40 bg-red-500/10 text-red-400"
+                        : result.risk_level === "MEDIUM"
+                          ? "border-yellow-500/40 bg-yellow-500/10 text-yellow-400"
+                          : "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                    }`}
+                  >
+                    {result.risk_level} RISK
+                  </span>
+                </div>
 
-            <PipelineStep
-              number="01"
-              icon={Activity}
-              title="Transaction"
-              description="Incoming UPI event"
-            />
+                {/* Score visual */}
+                <div className="mb-6 rounded-xl border border-white/10 bg-black/30 p-5">
+                  <div className="flex items-end justify-between">
+                    <div>
+                      <p className="text-xs text-slate-500">ML Anomaly Risk Score</p>
+                      <p
+                        className={`mt-1 text-5xl font-extrabold ${
+                          result.risk_level === "HIGH"
+                            ? "text-red-400"
+                            : result.risk_level === "MEDIUM"
+                              ? "text-yellow-400"
+                              : "text-emerald-400"
+                        }`}
+                      >
+                        {result.risk_score.toFixed(2)}
+                      </p>
+                    </div>
 
+                    <div className="text-right">
+                      <p className="text-[10px] uppercase tracking-widest text-slate-500">
+                        Alert Threshold
+                      </p>
+                      <p className="text-xs font-medium text-slate-400">&ge; 30.00 Trigger Alert</p>
+                    </div>
+                  </div>
 
-            <PipelineStep
-              number="02"
-              icon={BarChart3}
-              title="Features"
-              description="Behavioral features"
-            />
+                  {/* Progress bar */}
+                  <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                    <div
+                      className={`h-full transition-all duration-500 ${
+                        result.risk_level === "HIGH"
+                          ? "bg-red-400"
+                          : result.risk_level === "MEDIUM"
+                            ? "bg-yellow-400"
+                            : "bg-emerald-400"
+                      }`}
+                      style={{ width: `${Math.min(result.risk_score, 100)}%` }}
+                    />
+                  </div>
+                </div>
 
+                {/* Alert Notification Status */}
+                {result.alert ? (
+                  <div className="mb-6 flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+                    <ShieldAlert className="h-6 w-6 text-red-400" />
+                    <div>
+                      <p className="text-sm font-semibold text-red-400">Security Alert Triggered</p>
+                      <p className="mt-0.5 text-xs text-slate-300">
+                        This transaction triggered an OPEN alert in Supabase and was forwarded for security review.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mb-6 flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                    <CheckCircle2 className="h-6 w-6 text-emerald-400" />
+                    <div>
+                      <p className="text-sm font-semibold text-emerald-400">Transaction Cleared</p>
+                      <p className="mt-0.5 text-xs text-slate-300">
+                        No critical anomaly detected. Recorded in transaction history.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
-            <PipelineStep
-              number="03"
-              icon={Brain}
-              title="Detection"
-              description="Multiple anomaly models"
-            />
+                {/* Explainability reasons */}
+                <div>
+                  <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Detection Signals & Explainability
+                  </h4>
+                  <div className="space-y-2">
+                    {result.reasons && result.reasons.length > 0 ? (
+                      result.reasons.map((reason, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-3"
+                        >
+                          <span className="h-2 w-2 rounded-full bg-cyan-400" />
+                          <p className="text-xs text-slate-300">{reason}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-slate-500">No anomaly flags triggered.</p>
+                    )}
+                  </div>
+                </div>
 
+                {/* Quick actions */}
+                <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-white/10 pt-4">
+                  <Link
+                    href="/transactions"
+                    className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-slate-300 transition hover:bg-white/[0.06] hover:text-white"
+                  >
+                    <CreditCard className="h-3.5 w-3.5 text-cyan-400" />
+                    View in Transactions
+                  </Link>
 
-            <PipelineStep
-              number="04"
-              icon={TrendingUp}
-              title="Risk Score"
-              description="Weighted risk engine"
-            />
+                  {result.alert && (
+                    <Link
+                      href="/alerts"
+                      className="flex items-center gap-1.5 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-400 transition hover:bg-red-500/20"
+                    >
+                      <ShieldAlert className="h-3.5 w-3.5" />
+                      View in Alerts
+                    </Link>
+                  )}
 
-
-            <PipelineStep
-              number="05"
-              icon={ShieldAlert}
-              title="Alert"
-              description="High-risk notification"
-            />
-
+                  <Link
+                    href="/"
+                    className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-slate-300 transition hover:bg-white/[0.06] hover:text-white"
+                  >
+                    <LayoutDashboard className="h-3.5 w-3.5 text-cyan-400" />
+                    Dashboard
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <div className="flex h-full min-h-[350px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.01] p-8 text-center">
+                <Sparkles className="mb-4 h-10 w-10 text-slate-700" />
+                <h4 className="text-base font-medium text-slate-400">Ready to Score</h4>
+                <p className="mt-2 max-w-sm text-xs leading-relaxed text-slate-600">
+                  Select a preset scenario above or customize transaction details, then click
+                  &quot;Calculate Risk Score&quot; to test real-time detection.
+                </p>
+              </div>
+            )}
           </div>
-
-        </section>
-
-
-
-        {/* =====================================================
-            FOOTER
-        ====================================================== */}
-
-        <div className="mt-5 flex items-center gap-2 text-xs text-zinc-600">
-
-          <Clock3 className="h-3.5 w-3.5" />
-
-          Analytics is connected to the live transaction feed.
-          Detection-method weights remain configured in the risk engine.
-
         </div>
-
-
       </div>
-
     </main>
-  )
-}
-
-
-
-function buildTrendData(
-  transactions: Transaction[],
-  getRisk: (
-    transaction: Transaction
-  ) => RiskResult | null
-): TrendPoint[] {
-  if (!transactions.length) return []
-
-  const timestamps = transactions
-    .map((transaction) =>
-      new Date(transaction.timestamp).getTime()
-    )
-    .filter((timestamp) => Number.isFinite(timestamp))
-
-  if (!timestamps.length) return []
-
-  const bucketSize =
-    4 * 60 * 60 * 1000
-
-  const latest = Math.max(...timestamps)
-  const start =
-    latest - 6 * bucketSize
-
-  return Array.from(
-    { length: 7 },
-    (_, index) => {
-      const bucketStart =
-        start + index * bucketSize
-
-      const bucketEnd =
-        bucketStart + bucketSize
-
-      const bucket =
-        transactions.filter((transaction) => {
-          const timestamp =
-            new Date(
-              transaction.timestamp
-            ).getTime()
-
-          return (
-            timestamp >= bucketStart &&
-            timestamp < bucketEnd
-          )
-        })
-
-      return {
-        time: new Date(
-          bucketStart
-        ).toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-
-        high: bucket.filter(
-          (transaction) =>
-            getRisk(transaction)
-              ?.risk_level === "HIGH"
-        ).length,
-
-        medium: bucket.filter(
-          (transaction) =>
-            getRisk(transaction)
-              ?.risk_level === "MEDIUM"
-        ).length,
-
-        low: bucket.filter(
-          (transaction) =>
-            getRisk(transaction)
-              ?.risk_level === "LOW"
-        ).length,
-      }
-    }
-  )
-}
-
-/* =========================================================
-   METRIC CARD
-========================================================= */
-
-function MetricCard({
-  icon: Icon,
-  title,
-  value,
-  subtitle,
-}: {
-  icon: any
-  title: string
-  value: string
-  subtitle: string
-}) {
-
-  return (
-
-    <div className="group rounded-2xl border border-white/10 bg-[#0b0e13] p-5 transition hover:border-cyan-400/20">
-
-      <div className="mb-5 flex items-center justify-between">
-
-        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-2.5">
-
-          <Icon className="h-4 w-4 text-cyan-400" />
-
-        </div>
-
-
-        <span className="text-xs text-zinc-600">
-          ENGINE
-        </span>
-
-      </div>
-
-
-      <p className="text-sm text-zinc-400">
-        {title}
-      </p>
-
-
-      <p className="mt-1 text-2xl font-bold tracking-tight">
-        {value}
-      </p>
-
-
-      <p className="mt-1 text-xs text-zinc-600">
-        {subtitle}
-      </p>
-
-    </div>
-
-  )
-}
-
-
-
-/* =========================================================
-   LEGEND DOT
-========================================================= */
-
-function LegendDot({
-  label,
-}: {
-  label: string
-}) {
-
-  return (
-
-    <div className="flex items-center gap-2">
-
-      <span className="h-2 w-2 rounded-full bg-cyan-400" />
-
-      {label}
-
-    </div>
-
-  )
-}
-
-
-
-/* =========================================================
-   PIPELINE STEP
-========================================================= */
-
-function PipelineStep({
-  number,
-  icon: Icon,
-  title,
-  description,
-}: {
-  number: string
-  icon: any
-  title: string
-  description: string
-}) {
-
-  return (
-
-    <div className="relative rounded-xl border border-white/10 bg-white/[0.02] p-4">
-
-      <div className="mb-4 flex items-center justify-between">
-
-        <span className="text-[10px] font-semibold tracking-widest text-cyan-400">
-          {number}
-        </span>
-
-
-        <Icon className="h-4 w-4 text-zinc-500" />
-
-      </div>
-
-
-      <p className="text-sm font-medium">
-        {title}
-      </p>
-
-
-      <p className="mt-1 text-xs text-zinc-600">
-        {description}
-      </p>
-
-    </div>
-
   )
 }

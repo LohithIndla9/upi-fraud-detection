@@ -30,8 +30,7 @@ import {
   YAxis,
 } from "recharts"
 
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+import { API_BASE_URL } from "@/lib/api"
 
 type RiskResult = {
   risk_score: number
@@ -120,7 +119,7 @@ export default function AnalyticsPage() {
       }
 
       const data: Transaction[] = await response.json()
-      setTransactions(data)
+      setTransactions(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error("Analytics API error:", error)
       setApiError(true)

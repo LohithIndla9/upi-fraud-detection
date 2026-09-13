@@ -21,6 +21,7 @@ import {
   TrendingUp,
   Users,
   X,
+  Zap,
 } from "lucide-react"
 
 import {
@@ -33,11 +34,7 @@ import {
   YAxis,
 } from "recharts"
 
-// ============================================================
-// API CONFIGURATION
-// ============================================================
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+import { API_BASE_URL } from "@/lib/api"
 
 
 // ============================================================
@@ -318,7 +315,13 @@ export default function Dashboard() {
 
         setStats(statsData)
         setRiskDistribution(
-          distributionData
+          distributionData && typeof distributionData === "object"
+            ? {
+                low: Number(distributionData.low) || 0,
+                medium: Number(distributionData.medium) || 0,
+                high: Number(distributionData.high) || 0,
+              }
+            : { low: 0, medium: 0, high: 0 }
         )
         setTransactions(liveTransactions)
         setRiskData(
@@ -347,15 +350,21 @@ export default function Dashboard() {
   // RISK DISTRIBUTION PERCENTAGES
   // ==========================================================
 
+  const safeDistribution = {
+    low: Number(riskDistribution?.low) || 0,
+    medium: Number(riskDistribution?.medium) || 0,
+    high: Number(riskDistribution?.high) || 0,
+  }
+
   const totalRiskTransactions =
-    riskDistribution.low +
-    riskDistribution.medium +
-    riskDistribution.high
+    safeDistribution.low +
+    safeDistribution.medium +
+    safeDistribution.high
 
   const lowPercentage =
     totalRiskTransactions > 0
       ? Math.round(
-          (riskDistribution.low /
+          (safeDistribution.low /
             totalRiskTransactions) *
             100
         )
@@ -364,7 +373,7 @@ export default function Dashboard() {
   const mediumPercentage =
     totalRiskTransactions > 0
       ? Math.round(
-          (riskDistribution.medium /
+          (safeDistribution.medium /
             totalRiskTransactions) *
             100
         )
@@ -373,7 +382,7 @@ export default function Dashboard() {
   const highPercentage =
     totalRiskTransactions > 0
       ? Math.round(
-          (riskDistribution.high /
+          (safeDistribution.high /
             totalRiskTransactions) *
             100
         )
@@ -501,6 +510,17 @@ export default function Dashboard() {
             }
             label="Analytics"
             href="/analytics"
+            onClick={() =>
+              setSidebarOpen(false)
+            }
+          />
+
+          <SidebarItem
+            icon={
+              <Zap className="h-4 w-4" />
+            }
+            label="Risk Simulator"
+            href="/test"
             onClick={() =>
               setSidebarOpen(false)
             }
@@ -946,7 +966,7 @@ export default function Dashboard() {
                   count={
                     loading
                       ? "..."
-                      : riskDistribution.low.toLocaleString()
+                      : safeDistribution.low.toLocaleString()
                   }
                   dot="bg-emerald-400"
                 />
@@ -958,7 +978,7 @@ export default function Dashboard() {
                   count={
                     loading
                       ? "..."
-                      : riskDistribution.medium.toLocaleString()
+                      : safeDistribution.medium.toLocaleString()
                   }
                   dot="bg-yellow-400"
                 />
@@ -970,7 +990,7 @@ export default function Dashboard() {
                   count={
                     loading
                       ? "..."
-                      : riskDistribution.high.toLocaleString()
+                      : safeDistribution.high.toLocaleString()
                   }
                   dot="bg-red-400"
                 />
